@@ -252,16 +252,16 @@ class GameOfLife:
 #--------------------------------------------------------------------------------------------------
 # Title of the visualisation - shows on screen
 
-st.title("Game of Life")
+st.title("Conway's Game of Life")
 
 #--------------------------------------------------------------------------------------------------
 # Methods to interactively collect input variables
 
 N = st.sidebar.slider("Population Size", 100, 1000, 500)
-pattern = st.sidebar.radio("Initial Pattern", ('Block', 'Beacon', 'Glider', 'Pulsar'))
+pattern = st.sidebar.radio("Initial Pattern", ('Beacon', 'Block', 'Glider', 'Pulsar'))
 boundary = st.sidebar.radio("Boundary Conditions", ('Periodic', 'Finite'))
-no_iter = st.sidebar.number_input("Number of Iterations", 1)
-speed = st.sidebar.number_input("Speed Simulation", 0.0, 1.0, 0.9)
+no_iter = st.sidebar.number_input("Number of Iterations", 10)
+speed = st.sidebar.number_input("Speed Simulation", 0.0, 1.0, 0.7)
 
 
 #--------------------------------------------------------------------------------------------------
