@@ -1,151 +1,330 @@
+#=========================================================================================================================================================
+# Author: Luis E C Rocha  - luis.rocha@ugent.be - Ghent University, Belgium  - 26.09.2022
+#
+# Description: This file contains the implementation of the Game of Life, including some pre-defined patterns
+#              1. first install streamlit using "pip install streamlit" 
+#              2. run the python code from the command prompt using "streamlit run week4_exercise1.py"  *streamlit does not work well with Jupyler notebook
+#              3. when you run streamlit, it will open a tab in your default browser with the streamlit application *it works as a webpage hosted at the following URL:  Local URL: http://localhost:8501
+#              3.1. therefore, you can either stop the application or refresh the webpage to "restart" the application 
+#
+#=========================================================================================================================================================
+
+# Import essential modules/libraries
+import numpy as np
+import scipy.signal as sg
 import streamlit as st
-import pandas as pd
-import math
-from pathlib import Path
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+from time import sleep
 
-# Set the title and favicon that appear in the Browser's tab bar.
-st.set_page_config(
-    page_title='GDP dashboard',
-    page_icon=':earth_americas:', # This is an emoji shortcode. Could be a URL too.
-)
+#===============================================================================================================
+# THIS IS THE DEFINITION OF THE CLASS FOR THE MODEL
+class GameOfLife:
 
-# -----------------------------------------------------------------------------
-# Declare some useful functions.
+    #===================================================================
+    # This method initialises the system
+    def __init__(self, N, pattern, boundary):
 
-@st.cache_data
-def get_gdp_data():
-    """Grab GDP data from a CSV file.
+        # These are the parameters of the model, input by the user
+        self.N = N
+        self.pattern = pattern
+        self.boundary = boundary
 
-    This uses caching to avoid having to read the file every time. If we were
-    reading from an HTTP endpoint instead of a file, it's a good idea to set
-    a maximum age to the cache with the TTL argument: @st.cache_data(ttl='1d')
-    """
+        # This is the size of the system - Ps: this little trick just makes sure the system (grid) will have integer length for a square grid
+        NN = int(np.sqrt(self.N))**2
+        self.grid_size = int(np.sqrt(NN))
 
-    # Instead of a CSV on disk, you could read from an HTTP endpoint here too.
-    DATA_FILENAME = Path(__file__).parent/'data/gdp_data.csv'
-    raw_gdp_df = pd.read_csv(DATA_FILENAME)
+#--------------------------------------------------------------------------------------------------
+        # The arrays bellow are used to store the neighbours of each cell ("grid_neigh") and the current state of each cell ("grid")
+        self.grid_neigh = np.zeros([self.grid_size, self.grid_size])
+        self.grid = np.zeros([self.grid_size, self.grid_size])
 
-    MIN_YEAR = 1960
-    MAX_YEAR = 2022
+        if self.pattern == "Block":
+            self.pattern_1()
+        elif self.pattern == "Beacon":
+            self.pattern_2()
+        elif self.pattern == "Glider":
+            self.pattern_3()
+        elif self.pattern == "Pulsar":
+            self.pattern_4()
+#--------------------------------------------------------------------------------------------------
 
-    # The data above has columns like:
-    # - Country Name
-    # - Country Code
-    # - [Stuff I don't care about]
-    # - GDP for 1960
-    # - GDP for 1961
-    # - GDP for 1962
-    # - ...
-    # - GDP for 2022
-    #
-    # ...but I want this instead:
-    # - Country Name
-    # - Country Code
-    # - Year
-    # - GDP
-    #
-    # So let's pivot all those year-columns into two: Year and GDP
-    gdp_df = raw_gdp_df.melt(
-        ['Country Code'],
-        [str(x) for x in range(MIN_YEAR, MAX_YEAR + 1)],
-        'Year',
-        'GDP',
-    )
+    #====================================================================
+    # MODEL: This method updates the state of the cells (grid) at each time step
+    def run(self):
 
-    # Convert years from string to integers
-    gdp_df['Year'] = pd.to_numeric(gdp_df['Year'])
+        #-----------------------------------------------------
+        # Calls the method to calculate the number of neighbours given the chosen boundary conditions
+        if self.boundary == "Periodic":
+#            self.periodic_boundary()     # using the brute force method
+            self.periodic_boundary_c()  # using the convolution method
+        elif self.boundary == "Finite":
+#            self.finite_boundary()       # using the brute force method
+            self.finite_boundary_c()    # using the convolution method
 
-    return gdp_df
+#        print(self.grid_neigh)
+        # Update the state of the cells following the game of life rules
+        for i in range(0, self.grid_size):
+            for j in range(0, self.grid_size):
 
-gdp_df = get_gdp_data()
-
-# -----------------------------------------------------------------------------
-# Draw the actual page
-
-# Set the title that appears at the top of the page.
-'''
-# :earth_americas: GDP dashboard
-
-Browse GDP data from the [World Bank Open Data](https://data.worldbank.org/) website. As you'll
-notice, the data only goes to 2022 right now, and datapoints for certain years are often missing.
-But it's otherwise a great (and did I mention _free_?) source of data.
-'''
-
-# Add some spacing
-''
-''
-
-min_value = gdp_df['Year'].min()
-max_value = gdp_df['Year'].max()
-
-from_year, to_year = st.slider(
-    'Which years are you interested in?',
-    min_value=min_value,
-    max_value=max_value,
-    value=[min_value, max_value])
-
-countries = gdp_df['Country Code'].unique()
-
-if not len(countries):
-    st.warning("Select at least one country")
-
-selected_countries = st.multiselect(
-    'Which countries would you like to view?',
-    countries,
-    ['DEU', 'FRA', 'GBR', 'BRA', 'MEX', 'JPN'])
-
-''
-''
-''
-
-# Filter the data
-filtered_gdp_df = gdp_df[
-    (gdp_df['Country Code'].isin(selected_countries))
-    & (gdp_df['Year'] <= to_year)
-    & (from_year <= gdp_df['Year'])
-]
-
-st.header('GDP over time', divider='gray')
-
-''
-
-st.line_chart(
-    filtered_gdp_df,
-    x='Year',
-    y='GDP',
-    color='Country Code',
-)
-
-''
-''
+                # Rule 1: A live cell with fewer than 2 live neighbours dies (loneliness)
+                # first check if the cell is alive
+                if self.grid[i,j] == 1:
+                    if self.grid_neigh[i,j] < 2:
+                        self.grid[i, j] = 0
+                # Rule 2: A live cell with 2 or 3 live neighbours lives on to the next generation (happiness) | tip: if you organise well the sequence of IF statements, you can skip this if statement
+                    elif (self.grid_neigh[i,j] == 2) | (self.grid_neigh[i, j] == 3):
+                        self.grid[i, j] = 1
+                # Rule 3: A live cell with more than 3 live neighbours dies (overpopulation)
+                    elif self.grid_neigh[i, j] > 3:
+                        self.grid[i, j] = 0
+                # Rule 4: A dead cell with exactly 3 live neighbours becomes a live cell (reproduction)
+                elif self.grid_neigh[i, j] == 3:
+                    self.grid[i, j] = 1
+        #-----------------------------------------------------
 
 
-first_year = gdp_df[gdp_df['Year'] == from_year]
-last_year = gdp_df[gdp_df['Year'] == to_year]
+    #====================================================================
+    # Define boundary conditions - periodic
+    def periodic_boundary(self):
 
-st.header(f'GDP in {to_year}', divider='gray')
+        # Count the number of neighbours
+        
+        # the 4 corners of the grid
+        self.grid_neigh[0,0] = self.grid[self.grid_size-1,self.grid_size-1] + self.grid[self.grid_size-1,0] + self.grid[self.grid_size-1, 1] + self.grid[0,self.grid_size-1] + self.grid[0,1] + self.grid[1, self.grid_size-1] + self.grid[1,0] + self.grid[1, 1]
+        self.grid_neigh[self.grid_size-1,0] = self.grid[self.grid_size-2,self.grid_size-1] + self.grid[self.grid_size-2,0] + self.grid[self.grid_size-2, 1] + self.grid[self.grid_size-1,self.grid_size-1] + self.grid[self.grid_size-1,1] + self.grid[0, self.grid_size-1] + self.grid[0,0] + self.grid[0, 1]
+        self.grid_neigh[0,self.grid_size-1] = self.grid[self.grid_size-1,self.grid_size-2] + self.grid[self.grid_size-1,self.grid_size-1] + self.grid[self.grid_size-1, 0] + self.grid[0,self.grid_size-2] + self.grid[0,0] + self.grid[1, self.grid_size-2] + self.grid[1,self.grid_size-1] + self.grid[1, 0]
+        self.grid_neigh[self.grid_size-1,self.grid_size-1] = self.grid[self.grid_size-2,self.grid_size-2] + self.grid[self.grid_size-2,self.grid_size-1] + self.grid[self.grid_size-2, 0] + self.grid[self.grid_size-1,self.grid_size-2] + self.grid[self.grid_size-1,0] + self.grid[0, self.grid_size-2] + self.grid[0,self.grid_size-1] + self.grid[0, 0]
 
-''
+        # edges of the grid, EXCEPT the corners
+        for k in range(1, self.grid_size-1):
+            self.grid_neigh[k,0] = self.grid[k-1,self.grid_size-1] + self.grid[k-1,0] + self.grid[k-1, 1] + self.grid[k,self.grid_size-1] + self.grid[k,1] + self.grid[k+1, self.grid_size-1] + self.grid[k+1,0] + self.grid[k+1, 1]
+            self.grid_neigh[0,k] = self.grid[self.grid_size-1,k-1] + self.grid[self.grid_size-1,k] + self.grid[self.grid_size-1, k+1] + self.grid[0,k-1] + self.grid[0,k+1] + self.grid[1, k-1] + self.grid[1,k] + self.grid[1,k+1]
+            self.grid_neigh[self.grid_size-1,k] = self.grid[self.grid_size-2,k-1] + self.grid[self.grid_size-2,k] + self.grid[self.grid_size-2, k+1] + self.grid[self.grid_size-1,k-1] + self.grid[self.grid_size-1,k+1] + self.grid[0,k-1] + self.grid[0,k] + self.grid[0, k+1]
+            self.grid_neigh[k,self.grid_size-1] = self.grid[k-1,self.grid_size-2] + self.grid[k-1,self.grid_size-1] + self.grid[k-1,0] + self.grid[k,self.grid_size-2] + self.grid[k,0] + self.grid[k+1,self.grid_size-2] + self.grid[k+1,self.grid_size-1] + self.grid[k+1,0]
 
-cols = st.columns(4)
+            # all OTHER cells of the grid
+            for l in range(1, self.grid_size-1):
+                self.grid_neigh[k,l] = self.grid[k-1, l-1] + self.grid[k-1, l] + self.grid[k-1, l+1] + self.grid[k, l-1] + self.grid[k, l+1] + self.grid[k+1, l-1] + self.grid[k+1, l] + self.grid[k+1, l+1]
 
-for i, country in enumerate(selected_countries):
-    col = cols[i % len(cols)]
+    #====================================================================
+    # Define boundary conditions - finite
+    def finite_boundary(self):
 
-    with col:
-        first_gdp = first_year[first_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
-        last_gdp = last_year[last_year['Country Code'] == country]['GDP'].iat[0] / 1000000000
+        # Count the number of neighbours
+        
+        # the 4 corners of the grid
+        self.grid_neigh[0,0] = self.grid[0,1] + self.grid[1,0] + self.grid[1, 1]
+        self.grid_neigh[self.grid_size-1,0] = self.grid[self.grid_size-2,0] + self.grid[self.grid_size-2, 1] + self.grid[self.grid_size-1,1]
+        self.grid_neigh[0,self.grid_size-1] = self.grid[0,self.grid_size-2] + self.grid[1, self.grid_size-2] + self.grid[1,self.grid_size-1]
+        self.grid_neigh[self.grid_size-1,self.grid_size-1] = self.grid[self.grid_size-2,self.grid_size-2] + self.grid[self.grid_size-2,self.grid_size-1] + self.grid[self.grid_size-1,self.grid_size-2]
 
-        if math.isnan(first_gdp):
-            growth = 'n/a'
-            delta_color = 'off'
-        else:
-            growth = f'{last_gdp / first_gdp:,.2f}x'
-            delta_color = 'normal'
+        # edges of the grid, EXCEPT the corners
+        for k in range(1, self.grid_size-1):
+            
+            # edge with j = 0 fixed
+            self.grid_neigh[k,0] = self.grid[k-1,0] + self.grid[k-1, 1] + self.grid[k,1] + self.grid[k+1,0] + self.grid[k+1, 1]
+            # edge with i = 0 fixed
+            self.grid_neigh[0,k] = self.grid[0,k-1] + self.grid[0,k+1] + self.grid[1, k-1] + self.grid[1,k] + self.grid[1,k+1]
+            # edge with i = size_grid-1 fixed
+            self.grid_neigh[self.grid_size-1,k] = self.grid[self.grid_size-2,k-1] + self.grid[self.grid_size-2,k] + self.grid[self.grid_size-2, k+1] + self.grid[self.grid_size-1,k-1] + self.grid[self.grid_size-1,k+1]
+            # edge with j = size_grid-1 fixed
+            self.grid_neigh[k,self.grid_size-1] = self.grid[k-1,self.grid_size-2] + self.grid[k-1,self.grid_size-1] + self.grid[k,self.grid_size-2] + self.grid[k+1,self.grid_size-2] + self.grid[k+1,self.grid_size-1]
 
-        st.metric(
-            label=f'{country} GDP',
-            value=f'{last_gdp:,.0f}B',
-            delta=growth,
-            delta_color=delta_color
-        )
+            # all OTHER cells of the grid
+            for l in range(1, self.grid_size-1):
+                self.grid_neigh[k,l] = self.grid[k-1, l-1] + self.grid[k-1, l] + self.grid[k-1, l+1] + self.grid[k, l-1] + self.grid[k, l+1] + self.grid[k+1, l-1] + self.grid[k+1, l] + self.grid[k+1, l+1]
+
+    #====================================================================
+    # Define boundary conditions - periodic
+    # Using the convolution method
+    def periodic_boundary_c(self):
+        
+        # define the kernel for the Moore neighbourhood
+        kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
+        self.grid_neigh = sg.convolve2d(self.grid == 1, kernel, mode='same', boundary='wrap')
+        
+    #====================================================================
+    # Define boundary conditions - fixed
+    # Using the convolution method
+    def finite_boundary_c(self):
+
+        # define the kernel for the Moore neighbourhood
+        kernel = np.array([[1, 1, 1], [1, 0, 1], [1, 1, 1]])
+        self.grid_neigh = sg.convolve2d(self.grid == 1, kernel, mode='same', boundary='fill')
+                
+    #====================================================================
+    # Define initial pattern - block: still pattern
+    # It is located at the centre of the lattice
+    def pattern_1(self):
+
+        self.grid[int(self.grid_size/2)  , int(self.grid_size/2)  ] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)  ] = 1
+        self.grid[int(self.grid_size/2)  , int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)+1] = 1
+
+    #====================================================================
+    # Define initial pattern - Beacon: oscillator pattern
+    # It is located at the centre of the lattice
+    def pattern_2(self):
+
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)  , int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)  ] = 1
+
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)+2] = 1
+        self.grid[int(self.grid_size/2)+2, int(self.grid_size/2)+2] = 1
+        self.grid[int(self.grid_size/2)+2, int(self.grid_size/2)+1] = 1
+
+    #====================================================================
+    # Define initial pattern - Glider: moving pattern
+    # It is located at the centre of the lattice
+    def pattern_3(self):
+
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)  ] = 1
+        self.grid[int(self.grid_size/2)  , int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)  ] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)-1] = 1
+
+    #====================================================================
+    # Define initial pattern - Pulsar: oscillating pattern with cycle 3: repeats the pattern each 3 steps
+    # It is located at the centre of the lattice
+    def pattern_4(self):
+
+        self.grid[int(self.grid_size/2)+2, int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)+3, int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)+4, int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)+2] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)+3] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)+4] = 1
+        self.grid[int(self.grid_size/2)+6, int(self.grid_size/2)+2] = 1
+        self.grid[int(self.grid_size/2)+6, int(self.grid_size/2)+3] = 1
+        self.grid[int(self.grid_size/2)+6, int(self.grid_size/2)+4] = 1
+        self.grid[int(self.grid_size/2)+2, int(self.grid_size/2)+6] = 1
+        self.grid[int(self.grid_size/2)+3, int(self.grid_size/2)+6] = 1
+        self.grid[int(self.grid_size/2)+4, int(self.grid_size/2)+6] = 1
+        
+        self.grid[int(self.grid_size/2)+2, int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)+3, int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)+4, int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)-2] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)-3] = 1
+        self.grid[int(self.grid_size/2)+1, int(self.grid_size/2)-4] = 1
+        self.grid[int(self.grid_size/2)+6, int(self.grid_size/2)-2] = 1
+        self.grid[int(self.grid_size/2)+6, int(self.grid_size/2)-3] = 1
+        self.grid[int(self.grid_size/2)+6, int(self.grid_size/2)-4] = 1
+        self.grid[int(self.grid_size/2)+2, int(self.grid_size/2)-6] = 1
+        self.grid[int(self.grid_size/2)+3, int(self.grid_size/2)-6] = 1
+        self.grid[int(self.grid_size/2)+4, int(self.grid_size/2)-6] = 1
+
+        self.grid[int(self.grid_size/2)-2, int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)-3, int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)-4, int(self.grid_size/2)-1] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)-2] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)-3] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)-4] = 1
+        self.grid[int(self.grid_size/2)-6, int(self.grid_size/2)-2] = 1
+        self.grid[int(self.grid_size/2)-6, int(self.grid_size/2)-3] = 1
+        self.grid[int(self.grid_size/2)-6, int(self.grid_size/2)-4] = 1
+        self.grid[int(self.grid_size/2)-2, int(self.grid_size/2)-6] = 1
+        self.grid[int(self.grid_size/2)-3, int(self.grid_size/2)-6] = 1
+        self.grid[int(self.grid_size/2)-4, int(self.grid_size/2)-6] = 1        
+
+        self.grid[int(self.grid_size/2)-2, int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)-3, int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)-4, int(self.grid_size/2)+1] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)+2] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)+3] = 1
+        self.grid[int(self.grid_size/2)-1, int(self.grid_size/2)+4] = 1
+        self.grid[int(self.grid_size/2)-6, int(self.grid_size/2)+2] = 1
+        self.grid[int(self.grid_size/2)-6, int(self.grid_size/2)+3] = 1
+        self.grid[int(self.grid_size/2)-6, int(self.grid_size/2)+4] = 1
+        self.grid[int(self.grid_size/2)-2, int(self.grid_size/2)+6] = 1
+        self.grid[int(self.grid_size/2)-3, int(self.grid_size/2)+6] = 1
+        self.grid[int(self.grid_size/2)-4, int(self.grid_size/2)+6] = 1
+
+    # SEARCH FOR MORE PATTERNS ONLINE -OR CHECK THE SLIDES FROM THE COURSE- AND IMPLEMENT THEM HERE!
+
+#===============================================================================================================
+# VISUALISATION OF THE MODEL DYNAMICS USING THE streamlit FRAMEWORK (see more on https://streamlit.io/)
+
+#--------------------------------------------------------------------------------------------------
+# Title of the visualisation - shows on screen
+
+st.title("Game of Life")
+
+#--------------------------------------------------------------------------------------------------
+# Methods to interactively collect input variables
+
+N = st.sidebar.slider("Population Size", 100, 1000, 500)
+pattern = st.sidebar.radio("Initial Pattern", ('Block', 'Beacon', 'Glider', 'Pulsar'))
+boundary = st.sidebar.radio("Boundary Conditions", ('Periodic', 'Finite'))
+no_iter = st.sidebar.number_input("Number of Iterations", 1)
+speed = st.sidebar.number_input("Speed Simulation", 0.0, 1.0, 0.9)
+
+
+#--------------------------------------------------------------------------------------------------
+# Initialise the object   - Note that when one runs the code, the selected parameters will be passed here during the initialisation of the object via "self" method
+
+gamelife = GameOfLife(N, pattern, boundary)
+
+#--------------------------------------------------------------------------------------------------
+# Draw the lattice at the initial time
+# Create placeholders for plot, iteration text, and progress bar
+plot_placeholder = st.empty()
+
+# This functions shows a progress bar
+show_iteration = st.empty()
+progress_bar = st.progress(0)
+
+# Display the initial state
+# lattice that will show the positions of the random walkers at the current time step
+fig, ax = plt.subplots()
+ax.axis('off')
+cmap = ListedColormap(['white', 'red'])
+ax.pcolormesh(gamelife.grid, cmap=cmap, edgecolors='k', linewidths=0.5)
+
+# This function draws the figure (in object) fig on the screen
+plot_placeholder.pyplot(fig)
+
+# Close the figure instances
+plt.close(fig)
+
+# This functions shows a progress bar
+show_iteration.text("Step 0")
+
+#===============================================================================================================
+# RUN THE DYNAMICS (IF THE USER CLICKS ON "Run") FOLLOWING THE RULES DEFINED ABOVE IN "RUN"
+
+if st.sidebar.button('Run'):
+
+    # Run the simulation for no_iter iterations, i.e. total time of the simulation
+    # Repeat routines below for each time step i
+    for i in range(no_iter):
+
+        # Add a little time delay, otherwise the patterns update too fast
+        sleep(1.0-speed)
+
+        # Call the method "Run" with the interaction rules
+        gamelife.run()
+
+        #--------------------------------------------------------------------
+        # Visualisation of the evolution
+        # Create a new figure for the updated grid state
+        fig, ax = plt.subplots()
+        
+        ax.axis('off')
+        ax.pcolormesh(gamelife.grid, cmap=cmap, edgecolors='k', linewidths=0.5)
+
+        # Draws the figure (in the object plt) on the screen
+        plot_placeholder.pyplot(fig)
+        
+        # Closes all the figures (to replot them in the next time step)
+        plt.close("all")
+
+        # Updates the progress bar
+        show_iteration.text("Step %d" %(i+1))
+        progress_bar.progress( (i+1.0)/no_iter )
+
+        #--------------------------------------------------------------------
